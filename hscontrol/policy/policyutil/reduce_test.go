@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/juanfont/headscale/hscontrol/policy"
 	"github.com/juanfont/headscale/hscontrol/policy/policyutil"
 	v2 "github.com/juanfont/headscale/hscontrol/policy/v2"
@@ -19,6 +20,19 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/util/must"
 )
+
+// relayCapGrantRuleForTest is the relay capability grant rule that
+// ReduceFilterRules must pass through unconditionally to all nodes.
+var relayCapGrantRuleForTest = tailcfg.FilterRule{
+	SrcIPs: []string{"*"},
+	CapGrant: []tailcfg.CapGrant{{
+		Dsts: []netip.Prefix{tsaddr.AllIPv4(), tsaddr.AllIPv6()},
+		Caps: []tailcfg.PeerCapability{
+			tailcfg.PeerCapabilityRelay,
+			tailcfg.PeerCapabilityRelayTarget,
+		},
+	}},
+}
 
 var ap = func(ipStr string) *netip.Addr {
 	ip := netip.MustParseAddr(ipStr)
@@ -153,7 +167,7 @@ func TestReduceFilterRules(t *testing.T) {
 					User: new(users[0]),
 				},
 			},
-			want: []tailcfg.FilterRule{},
+			want: []tailcfg.FilterRule{relayCapGrantRuleForTest},
 		},
 		{
 			name: "1604-subnet-routers-are-preserved",
@@ -230,6 +244,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -291,7 +306,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 				},
 			},
-			want: []tailcfg.FilterRule{},
+			want: []tailcfg.FilterRule{relayCapGrantRuleForTest},
 		},
 		{
 			name: "1786-reducing-breaks-exit-nodes-the-exit",
@@ -369,6 +384,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -504,6 +520,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -589,6 +606,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -674,6 +692,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -742,6 +761,7 @@ func TestReduceFilterRules(t *testing.T) {
 					},
 					IPProto: []int{v2.ProtocolTCP, v2.ProtocolUDP, v2.ProtocolICMP, v2.ProtocolIPv6ICMP},
 				},
+				relayCapGrantRuleForTest,
 			},
 		},
 		{
@@ -790,7 +810,7 @@ func TestReduceFilterRules(t *testing.T) {
 					ApprovedRoutes: []netip.Prefix{p("172.16.0.0/24"), p("10.10.11.0/24"), p("10.10.12.0/24")},
 				},
 			},
-			want: []tailcfg.FilterRule{},
+			want: []tailcfg.FilterRule{relayCapGrantRuleForTest},
 		},
 	}
 
@@ -809,7 +829,9 @@ func TestReduceFilterRules(t *testing.T) {
 				t.Logf("full filter:\n%s", must.Get(json.MarshalIndent(got, "", "  ")))
 				got = policyutil.ReduceFilterRules(tt.node.View(), got)
 
-				if diff := cmp.Diff(tt.want, got); diff != "" {
+				if diff := cmp.Diff(tt.want, got,
+					cmpopts.EquateComparable(netip.Prefix{}),
+				); diff != "" {
 					log.Trace().Interface("got", got).Msg("result")
 					t.Errorf("TestReduceFilterRules() unexpected result (-want +got):\n%s", diff)
 				}

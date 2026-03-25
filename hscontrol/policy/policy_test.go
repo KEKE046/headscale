@@ -854,7 +854,8 @@ func TestReduceNodesFromPolicy(t *testing.T) {
 			want: types.Nodes{
 				n(2, "100.64.0.2", "server", "server"),
 			},
-			wantMatchers: 1,
+			// +1 for the relay CapGrant rule (CapGrant-only, no DstPorts)
+			wantMatchers: 2,
 		},
 		{
 			name: "2788-exit-node-autogroup:internet",
@@ -899,7 +900,8 @@ func TestReduceNodesFromPolicy(t *testing.T) {
 			want: types.Nodes{
 				n(2, "100.64.0.2", "server", "server"),
 			},
-			wantMatchers: 1,
+			// +1 for the relay CapGrant rule (CapGrant-only, no DstPorts)
+			wantMatchers: 2,
 		},
 		{
 			name: "2788-exit-node-0000-route",
@@ -942,7 +944,8 @@ func TestReduceNodesFromPolicy(t *testing.T) {
 				n(2, "100.64.0.2", "server", "server"),
 				n(3, "100.64.0.3", "exit", "server", "0.0.0.0/0", "::/0"),
 			},
-			wantMatchers: 1,
+			// +1 for the relay CapGrant rule (CapGrant-only, no DstPorts)
+			wantMatchers: 2,
 		},
 		{
 			name: "2788-exit-node-::0-route",
@@ -985,7 +988,8 @@ func TestReduceNodesFromPolicy(t *testing.T) {
 				n(2, "100.64.0.2", "server", "server"),
 				n(3, "100.64.0.3", "exit", "server", "0.0.0.0/0", "::/0"),
 			},
-			wantMatchers: 1,
+			// +1 for the relay CapGrant rule (CapGrant-only, no DstPorts)
+			wantMatchers: 2,
 		},
 		{
 			name: "2784-split-exit-node-access",
@@ -1029,7 +1033,8 @@ func TestReduceNodesFromPolicy(t *testing.T) {
 			want: types.Nodes{
 				n(2, "100.64.0.2", "exit1", "exit", "0.0.0.0/0", "::/0"),
 			},
-			wantMatchers: 2,
+			// +1 for the relay CapGrant rule (CapGrant-only, no DstPorts)
+			wantMatchers: 3,
 		},
 	}
 

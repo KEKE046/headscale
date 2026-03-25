@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/juanfont/headscale/hscontrol/policy/matcher"
 	"github.com/juanfont/headscale/hscontrol/types"
 	"github.com/stretchr/testify/require"
@@ -38,11 +39,21 @@ func TestPolicyManager(t *testing.T) {
 		wantMatchers []matcher.Match
 	}{
 		{
-			name:         "empty-policy",
-			pol:          "{}",
-			nodes:        types.Nodes{},
-			wantFilter:   tailcfg.FilterAllowAll,
-			wantMatchers: matcher.MatchesFromFilterRules(tailcfg.FilterAllowAll),
+			name:  "empty-policy",
+			pol:   "{}",
+			nodes: types.Nodes{},
+			wantFilter: func() []tailcfg.FilterRule {
+				rules := slices.Clone(tailcfg.FilterAllowAll)
+				rules = append(rules, relayCapGrantRule)
+
+				return rules
+			}(),
+			wantMatchers: func() []matcher.Match {
+				rules := slices.Clone(tailcfg.FilterAllowAll)
+				rules = append(rules, relayCapGrantRule)
+
+				return matcher.MatchesFromFilterRules(rules)
+			}(),
 		},
 	}
 
@@ -52,7 +63,9 @@ func TestPolicyManager(t *testing.T) {
 			require.NoError(t, err)
 
 			filter, matchers := pm.Filter()
-			if diff := cmp.Diff(tt.wantFilter, filter); diff != "" {
+			if diff := cmp.Diff(tt.wantFilter, filter,
+				cmpopts.EquateComparable(netip.Prefix{}),
+			); diff != "" {
 				t.Errorf("Filter() filter mismatch (-want +got):\n%s", diff)
 			}
 

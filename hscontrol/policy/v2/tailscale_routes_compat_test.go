@@ -941,6 +941,7 @@ func TestTailscaleRoutesCompatSubnetBasics(t *testing.T) {
 				require.NoError(t, err, "failed to compile filters for node %s", nodeName)
 
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -1565,6 +1566,7 @@ func TestTailscaleRoutesCompatExitNodes(t *testing.T) {
 				require.NoError(t, err, "failed to compile filters for node %s", nodeName)
 
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -3273,6 +3275,7 @@ func runRoutesCompatTests(t *testing.T, users types.Users, nodes types.Nodes, te
 				require.NoError(t, err, "failed to compile filters for node %s", nodeName)
 
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue

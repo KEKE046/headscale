@@ -172,7 +172,26 @@ func cmpOptions() []cmp.Option {
 			return a.Ports.Last < b.Ports.Last
 		}),
 		cmpopts.SortSlices(func(a, b int) bool { return a < b }),
+		cmpopts.EquateComparable(netip.Prefix{}),
 	}
+}
+
+// stripRelayCapGrant removes the Headscale-specific relay CapGrant rule from a
+// filter rule slice. The Tailscale compatibility tests validate ACL compilation
+// against Tailscale's expected behaviour; the relay CapGrant is a Headscale
+// extension that is separately tested by TestCompileFilterRulesIncludesRelayCapGrant.
+func stripRelayCapGrant(rules []tailcfg.FilterRule) []tailcfg.FilterRule {
+	out := rules[:0:len(rules)]
+
+	for _, r := range rules {
+		if len(r.DstPorts) == 0 && len(r.CapGrant) > 0 {
+			continue
+		}
+
+		out = append(out, r)
+	}
+
+	return out
 }
 
 // Tailscale uses partitioned CGNAT CIDR ranges for wildcard source expansion
@@ -492,6 +511,7 @@ func TestTailscaleCompatWildcardACLs(t *testing.T) {
 				require.NoError(t, err, "failed to compile filters for node %s", nodeName)
 
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -770,6 +790,7 @@ func TestTailscaleCompatBasicTags(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				// Handle nil vs empty slice comparison
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
@@ -1042,6 +1063,7 @@ func TestTailscaleCompatUsersGroups(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -1489,6 +1511,7 @@ func TestTailscaleCompatAutogroups(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -1698,6 +1721,7 @@ func TestTailscaleCompatHosts(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -1899,6 +1923,7 @@ func TestTailscaleCompatProtocolsPorts(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -2212,6 +2237,7 @@ func TestTailscaleCompatMixedSources(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue
@@ -9613,6 +9639,7 @@ func TestTailscaleCompatComplexScenarios(t *testing.T) {
 
 				// Reduce to only rules where this node is a destination
 				gotFilters := policyutil.ReduceFilterRules(node.View(), compiledFilters)
+				gotFilters = stripRelayCapGrant(gotFilters)
 
 				if len(wantFilters) == 0 && len(gotFilters) == 0 {
 					continue

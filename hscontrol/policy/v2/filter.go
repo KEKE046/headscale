@@ -13,6 +13,7 @@ import (
 	"github.com/juanfont/headscale/hscontrol/util"
 	"github.com/rs/zerolog/log"
 	"go4.org/netipx"
+	"tailscale.com/net/tsaddr"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/views"
 )
@@ -24,12 +25,29 @@ var (
 
 // compileFilterRules takes a set of nodes and an ACLPolicy and generates a
 // set of Tailscale compatible FilterRules used to allow traffic on clients.
+// relayCapGrantRule is the FilterRule that grants all peers the relay and
+// relay-target capabilities. Headscale always appends this rule so that
+// Tailscale peer relay works in every configuration.
+var relayCapGrantRule = tailcfg.FilterRule{
+	SrcIPs: []string{"*"},
+	CapGrant: []tailcfg.CapGrant{{
+		Dsts: []netip.Prefix{tsaddr.AllIPv4(), tsaddr.AllIPv6()},
+		Caps: []tailcfg.PeerCapability{
+			tailcfg.PeerCapabilityRelay,
+			tailcfg.PeerCapabilityRelayTarget,
+		},
+	}},
+}
+
 func (pol *Policy) compileFilterRules(
 	users types.Users,
 	nodes views.Slice[types.NodeView],
 ) ([]tailcfg.FilterRule, error) {
 	if pol == nil || pol.ACLs == nil {
-		return tailcfg.FilterAllowAll, nil
+		out := slices.Clone(tailcfg.FilterAllowAll)
+		out = append(out, relayCapGrantRule)
+
+		return out, nil
 	}
 
 	var rules []tailcfg.FilterRule
@@ -105,7 +123,10 @@ func (pol *Policy) compileFilterRules(
 		})
 	}
 
-	return mergeFilterRules(rules), nil
+	merged := mergeFilterRules(rules)
+	merged = append(merged, relayCapGrantRule)
+
+	return merged, nil
 }
 
 // compileFilterRulesForNode compiles filter rules for a specific node.
@@ -115,7 +136,10 @@ func (pol *Policy) compileFilterRulesForNode(
 	nodes views.Slice[types.NodeView],
 ) ([]tailcfg.FilterRule, error) {
 	if pol == nil {
-		return tailcfg.FilterAllowAll, nil
+		out := slices.Clone(tailcfg.FilterAllowAll)
+		out = append(out, relayCapGrantRule)
+
+		return out, nil
 	}
 
 	var rules []tailcfg.FilterRule
@@ -138,7 +162,10 @@ func (pol *Policy) compileFilterRulesForNode(
 		}
 	}
 
-	return mergeFilterRules(rules), nil
+	merged := mergeFilterRules(rules)
+	merged = append(merged, relayCapGrantRule)
+
+	return merged, nil
 }
 
 // compileACLWithAutogroupSelf compiles a single ACL rule, handling
@@ -748,6 +775,7 @@ func mergeFilterRules(rules []tailcfg.FilterRule) []tailcfg.FilterRule {
 				SrcIPs:   rule.SrcIPs,
 				DstPorts: slices.Clone(rule.DstPorts),
 				IPProto:  rule.IPProto,
+				CapGrant: slices.Clone(rule.CapGrant),
 			})
 		}
 	}

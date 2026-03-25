@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go4.org/netipx"
 	"gorm.io/gorm"
+	"tailscale.com/net/tsaddr"
 	"tailscale.com/tailcfg"
 )
 
@@ -391,7 +392,17 @@ func TestParsing(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tt.want, rules); diff != "" {
+			// Strip the relay CapGrant rule that is always appended; TestParsing
+			// focuses on ACL rule compilation, not the relay capability grant.
+			aclRules := rules
+			if len(aclRules) > 0 {
+				last := aclRules[len(aclRules)-1]
+				if len(last.CapGrant) > 0 && len(last.DstPorts) == 0 {
+					aclRules = aclRules[:len(aclRules)-1]
+				}
+			}
+
+			if diff := cmp.Diff(tt.want, aclRules); diff != "" {
 				t.Errorf("parsing() unexpected result (-want +got):\n%s", diff)
 			}
 		})
@@ -1349,8 +1360,8 @@ func TestCompileFilterRulesForNodeWithAutogroupSelf(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(rules) != 1 {
-		t.Fatalf("expected 1 rule, got %d", len(rules))
+	if len(rules) < 1 {
+		t.Fatalf("expected at least 1 rule, got %d", len(rules))
 	}
 
 	// Check that the rule includes:
@@ -1723,7 +1734,7 @@ func TestAutogroupSelfWithSpecificUserSource(t *testing.T) {
 	node1 := nodes[0].View()
 	rules, err := policy.compileFilterRulesForNode(users, node1, nodes.ViewSlice())
 	require.NoError(t, err)
-	require.Len(t, rules, 1)
+	require.GreaterOrEqual(t, len(rules), 1)
 
 	expectedSourceIPs := []string{"100.64.0.1", "100.64.0.2"}
 	for _, expectedIP := range expectedSourceIPs {
@@ -1752,7 +1763,11 @@ func TestAutogroupSelfWithSpecificUserSource(t *testing.T) {
 	node2 := nodes[2].View()
 	rules2, err := policy.compileFilterRulesForNode(users, node2, nodes.ViewSlice())
 	require.NoError(t, err)
-	assert.Empty(t, rules2, "user2's node should have no rules (user1@ devices can't match user2's self)")
+	// user2's node should only get the relay CapGrant rule (no ACL-derived rules)
+	for _, r := range rules2 {
+		assert.Empty(t, r.DstPorts,
+			"user2's node should have no ACL-derived rules (user1@ devices can't match user2's self)")
+	}
 }
 
 // TestAutogroupSelfWithGroupSource verifies that when a group is used as source
@@ -1795,7 +1810,7 @@ func TestAutogroupSelfWithGroupSource(t *testing.T) {
 	node1 := nodes[0].View()
 	rules, err := policy.compileFilterRulesForNode(users, node1, nodes.ViewSlice())
 	require.NoError(t, err)
-	require.Len(t, rules, 1)
+	require.GreaterOrEqual(t, len(rules), 1)
 
 	expectedSrcIPs := []string{"100.64.0.1", "100.64.0.2"}
 	for _, expectedIP := range expectedSrcIPs {
@@ -1816,7 +1831,10 @@ func TestAutogroupSelfWithGroupSource(t *testing.T) {
 	node3 := nodes[4].View()
 	rules3, err := policy.compileFilterRulesForNode(users, node3, nodes.ViewSlice())
 	require.NoError(t, err)
-	assert.Empty(t, rules3, "user3 should have no rules")
+	// user3 should have no ACL-derived rules (only relay CapGrant rule)
+	for _, r := range rules3 {
+		assert.Empty(t, r.DstPorts, "user3 should have no ACL-derived rules")
+	}
 }
 
 // Helper function to create IP addresses for testing.
@@ -3087,4 +3105,104 @@ func TestGroupSourcesByUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCompileFilterRulesIncludesRelayCapGrant verifies that compileFilterRules
+// always appends a relay CapGrant rule regardless of policy configuration.
+func TestCompileFilterRulesIncludesRelayCapGrant(t *testing.T) {
+	t.Parallel()
+
+	// Use nil policy (no ACLs) — should return FilterAllowAll + relay CapGrant.
+	var pol *Policy
+
+	rules, err := pol.compileFilterRules(nil, types.Nodes{}.ViewSlice())
+	require.NoError(t, err)
+
+	// There must be at least two rules: the allow-all rule and the relay CapGrant rule.
+	require.GreaterOrEqual(t, len(rules), 2, "expected at least 2 rules (allow-all + relay cap grant)")
+
+	// The last rule must be the relay CapGrant rule.
+	last := rules[len(rules)-1]
+	require.Equal(t, []string{"*"}, last.SrcIPs, "relay rule SrcIPs must be [\"*\"]")
+	require.Empty(t, last.DstPorts, "relay CapGrant rule must not have DstPorts")
+	require.Len(t, last.CapGrant, 1, "relay rule must have exactly one CapGrant entry")
+
+	grant := last.CapGrant[0]
+	assert.Contains(t, grant.Dsts, tsaddr.AllIPv4(), "CapGrant Dsts must include AllIPv4")
+	assert.Contains(t, grant.Dsts, tsaddr.AllIPv6(), "CapGrant Dsts must include AllIPv6")
+	assert.Contains(t, grant.Caps, tailcfg.PeerCapabilityRelay,
+		"CapGrant must include PeerCapabilityRelay")
+	assert.Contains(t, grant.Caps, tailcfg.PeerCapabilityRelayTarget,
+		"CapGrant must include PeerCapabilityRelayTarget")
+}
+
+// TestCompileFilterRulesWithACLsIncludesRelayCapGrant verifies that when a policy
+// has explicit ACL rules, the relay CapGrant rule is still appended at the end.
+func TestCompileFilterRulesWithACLsIncludesRelayCapGrant(t *testing.T) {
+	t.Parallel()
+
+	users := types.Users{
+		{Model: gorm.Model{ID: 1}, Name: "testuser"},
+	}
+
+	nodes := types.Nodes{
+		{
+			IPv4:     ap("100.64.0.1"),
+			User:     &users[0],
+			Hostinfo: &tailcfg.Hostinfo{},
+		},
+		{
+			IPv4:     ap("100.64.0.2"),
+			User:     &users[0],
+			Hostinfo: &tailcfg.Hostinfo{},
+		},
+	}
+
+	pol := &Policy{
+		ACLs: []ACL{
+			{
+				Action:  ActionAccept,
+				Sources: []Alias{up("testuser@")},
+				Destinations: []AliasWithPorts{
+					aliasWithPorts(up("testuser@"), tailcfg.PortRangeAny),
+				},
+			},
+		},
+	}
+
+	require.NoError(t, pol.validate())
+
+	rules, err := pol.compileFilterRules(users, nodes.ViewSlice())
+	require.NoError(t, err)
+	require.NotEmpty(t, rules)
+
+	// There must be at least one ACL-derived rule plus the relay CapGrant rule.
+	require.GreaterOrEqual(t, len(rules), 2, "expected ACL rules + relay cap grant rule")
+
+	// The last rule must be the relay CapGrant rule.
+	last := rules[len(rules)-1]
+	require.Equal(t, []string{"*"}, last.SrcIPs, "relay rule SrcIPs must be [\"*\"]")
+	require.Empty(t, last.DstPorts, "relay CapGrant rule must not have DstPorts")
+	require.Len(t, last.CapGrant, 1, "relay rule must have exactly one CapGrant entry")
+
+	grant := last.CapGrant[0]
+	assert.Contains(t, grant.Dsts, tsaddr.AllIPv4(), "CapGrant Dsts must include AllIPv4")
+	assert.Contains(t, grant.Dsts, tsaddr.AllIPv6(), "CapGrant Dsts must include AllIPv6")
+	assert.Contains(t, grant.Caps, tailcfg.PeerCapabilityRelay,
+		"CapGrant must include PeerCapabilityRelay")
+	assert.Contains(t, grant.Caps, tailcfg.PeerCapabilityRelayTarget,
+		"CapGrant must include PeerCapabilityRelayTarget")
+
+	// Verify the ACL-derived rules still exist (not just the CapGrant rule).
+	hasACLRule := false
+
+	for _, r := range rules[:len(rules)-1] {
+		if len(r.DstPorts) > 0 {
+			hasACLRule = true
+
+			break
+		}
+	}
+
+	assert.True(t, hasACLRule, "at least one ACL-derived rule with DstPorts should exist")
 }

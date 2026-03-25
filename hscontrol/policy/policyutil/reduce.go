@@ -65,6 +65,11 @@ func ReduceFilterRules(node types.NodeView, rules []tailcfg.FilterRule) []tailcf
 				DstPorts: dests,
 				IPProto:  rule.IPProto,
 			})
+		} else if len(rule.CapGrant) > 0 {
+			// CapGrant-only rules (no DstPorts) carry capability grants that
+			// apply network-wide and must be passed through to all nodes
+			// unchanged. ReduceFilterRules must not drop them.
+			ret = append(ret, rule)
 		}
 	}
 
