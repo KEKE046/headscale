@@ -6,6 +6,44 @@ An open source, self-hosted implementation of the Tailscale control server.
 
 Join our [Discord server](https://discord.gg/c84AZQhmpx) for a chat.
 
+## Changes in this fork
+
+### Peer Relay support
+
+This fork adds support for [Tailscale peer relay](https://tailscale.com/docs/features/peer-relay),
+which allows nodes in your tailnet to relay traffic for each other when direct connections
+are not possible — a decentralized alternative to DERP relays.
+
+Headscale now advertises `PeerCapabilityRelay` and `PeerCapabilityRelayTarget` in every
+node's `PacketFilter` via `MapResponse`. Tailscale clients (v1.86+, capability version ≥ 121)
+will automatically discover and use relay-capable peers.
+
+**To enable a node as a relay server**, run on that node:
+
+```sh
+tailscale set --relay-server-port=40000
+```
+
+Replace `40000` with any available UDP port. Use port `0` to let the OS pick a random port.
+To disable relay server functionality, set the port back to empty:
+
+```sh
+tailscale set --relay-server-port=
+```
+
+No configuration is required on the headscale server itself — the capability grants are
+issued automatically to all nodes. Relay server selection is handled entirely by the
+Tailscale client based on reachability and policy.
+
+**Key implementation files:**
+
+- `hscontrol/policy/v2/filter.go` — injects `relayCapGrantRule` into every compiled
+  `PacketFilter` (both global and per-node filter paths)
+- `hscontrol/policy/policyutil/reduce.go` — fixed `ReduceFilterRules` to pass through
+  `CapGrant`-only rules instead of silently dropping them
+
+---
+
 **Note:** Always select the same GitHub tag as the released version you use
 to ensure you have the correct example configuration. The `main` branch might
 contain unreleased changes. The documentation is available for stable and
