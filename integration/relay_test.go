@@ -200,12 +200,11 @@ func TestPeerRelayServerDiscovery(t *testing.T) {
 	clientCIP, err := clientC.IPv4()
 	require.NoErrorf(t, err, "getting IPv4 of clientC %q", clientC.Hostname())
 
-	// A pings B (relay server).
+	// A pings B (relay server). Accept any path (direct or DERP).
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		err := clientA.Ping(relayServerIP.String(),
 			tsic.WithPingTimeout(2*time.Second),
 			tsic.WithPingCount(3),
-			tsic.WithPingUntilDirect(false),
 		)
 		assert.NoError(c, err,
 			"%q should be able to ping relay server %q (%s)",
@@ -213,12 +212,11 @@ func TestPeerRelayServerDiscovery(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond,
 		"clientA should be able to ping the relay server node B")
 
-	// A pings C (through or around relay server).
+	// A pings C. Accept any path (direct or DERP).
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		err := clientA.Ping(clientCIP.String(),
 			tsic.WithPingTimeout(2*time.Second),
 			tsic.WithPingCount(3),
-			tsic.WithPingUntilDirect(false),
 		)
 		assert.NoError(c, err,
 			"%q should be able to ping %q (%s) even after relay server is active",
@@ -226,12 +224,11 @@ func TestPeerRelayServerDiscovery(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond,
 		"clientA should be able to ping clientC after relay server activation")
 
-	// C pings A.
+	// C pings A. Accept any path (direct or DERP).
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		err := clientC.Ping(clientAIP.String(),
 			tsic.WithPingTimeout(2*time.Second),
 			tsic.WithPingCount(3),
-			tsic.WithPingUntilDirect(false),
 		)
 		assert.NoError(c, err,
 			"%q should be able to ping %q (%s) even after relay server is active",
