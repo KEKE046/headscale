@@ -94,7 +94,7 @@ nfpms:
 kos:
   - id: ghcr
     repositories:
-      - ghcr.io/KEKE046/headscale
+      - ghcr.io/keke046/headscale
 
     bare: true
     base_image: gcr.io/distroless/base-debian13
