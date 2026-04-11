@@ -1,6 +1,7 @@
 package change
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -66,9 +67,9 @@ func (r Change) Merge(other Change) Change {
 	merged.SendAllPeers = r.SendAllPeers || other.SendAllPeers
 	merged.RequiresRuntimePeerComputation = r.RequiresRuntimePeerComputation || other.RequiresRuntimePeerComputation
 
-	merged.PeersChanged = uniqueNodeIDs(append(r.PeersChanged, other.PeersChanged...))
-	merged.PeersRemoved = uniqueNodeIDs(append(r.PeersRemoved, other.PeersRemoved...))
-	merged.PeerPatches = append(r.PeerPatches, other.PeerPatches...)
+	merged.PeersChanged = uniqueNodeIDs(slices.Concat(r.PeersChanged, other.PeersChanged))
+	merged.PeersRemoved = uniqueNodeIDs(slices.Concat(r.PeersRemoved, other.PeersRemoved))
+	merged.PeerPatches = slices.Concat(r.PeerPatches, other.PeerPatches)
 
 	// Preserve OriginNode for self-update detection.
 	// If either change has OriginNode set, keep it so the mapper
@@ -78,6 +79,16 @@ func (r Change) Merge(other Change) Change {
 	}
 
 	// Preserve TargetNode for targeted responses.
+	// Merging two changes targeted at different nodes is not supported
+	// because the merged result can only have one TargetNode, which
+	// would cause the other target's content to be misrouted.
+	if merged.TargetNode != 0 && other.TargetNode != 0 && merged.TargetNode != other.TargetNode {
+		panic(fmt.Sprintf(
+			"cannot merge changes with different TargetNode: %d != %d",
+			merged.TargetNode, other.TargetNode,
+		))
+	}
+
 	if merged.TargetNode == 0 {
 		merged.TargetNode = other.TargetNode
 	}

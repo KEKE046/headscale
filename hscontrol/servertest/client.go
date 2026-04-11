@@ -105,9 +105,13 @@ func NewClient(tb testing.TB, server *TestServer, name string, opts ...ClientOpt
 	uid := types.UserID(user.ID)
 
 	var authKey string
-	if cc.ephemeral {
+
+	switch {
+	case cc.ephemeral:
 		authKey = server.CreateEphemeralPreAuthKey(tb, uid)
-	} else {
+	case len(cc.tags) > 0:
+		authKey = server.CreateTaggedPreAuthKey(tb, uid, cc.tags)
+	default:
 		authKey = server.CreatePreAuthKey(tb, uid)
 	}
 
@@ -116,6 +120,10 @@ func NewClient(tb testing.TB, server *TestServer, name string, opts ...ClientOpt
 	tracker := health.NewTracker(bus)
 	dialer := tsdial.NewDialer(netmon.NewStatic())
 	dialer.SetBus(bus)
+
+	// Route all connections through the server's in-memory network
+	// so that no real TCP sockets are used.
+	dialer.SetSystemDialerForTest(server.MemNet().Dial)
 
 	machineKey := key.NewMachine()
 

@@ -128,6 +128,30 @@ func generateMapResponse(nc nodeConnection, mapper *mapper, r change.Change) (*t
 		return nil, fmt.Errorf("generating map response for nodeID %d: %w", nodeID, err)
 	}
 
+	// When a full update (SendAllPeers=true) produces zero visible peers
+	// (e.g., a restrictive policy isolates this node), the resulting
+	// MapResponse has Peers: []*tailcfg.Node{} (empty non-nil slice).
+	//
+	// The Tailscale client only treats Peers as a full authoritative
+	// replacement when len(Peers) > 0 (controlclient/map.go:462).
+	// An empty Peers slice is indistinguishable from a delta response,
+	// so the client silently preserves its existing peer state.
+	//
+	// This matters when a FullUpdate() replaces a pending PolicyChange()
+	// in the batcher (addToBatch short-circuits on HasFull). The
+	// PolicyChange would have computed PeersRemoved via computePeerDiff,
+	// but the FullUpdate path uses WithPeers which sets Peers: [].
+	//
+	// Fix: when a full update results in zero peers, compute the diff
+	// against lastSentPeers and add explicit PeersRemoved entries so
+	// the client correctly clears its stale peer state.
+	if mapResp != nil && r.SendAllPeers && len(mapResp.Peers) == 0 {
+		removedPeers := nc.computePeerDiff(nil)
+		if len(removedPeers) > 0 {
+			mapResp.PeersRemoved = removedPeers
+		}
+	}
+
 	return mapResp, nil
 }
 
@@ -154,10 +178,20 @@ func handleNodeChange(nc nodeConnection, mapper *mapper, r change.Change) error 
 	// Send the map response
 	err = nc.send(data)
 	if err != nil {
+		// If the node has no active connections, the data was not
+		// delivered. Do not update lastSentPeers — recording phantom
+		// peer state would corrupt future computePeerDiff calculations,
+		// causing the node to miss peer additions or removals after
+		// reconnection.
+		if errors.Is(err, errNoActiveConnections) {
+			return nil
+		}
+
 		return fmt.Errorf("sending map response to node %d: %w", nodeID, err)
 	}
 
-	// Update peer tracking after successful send
+	// Update peer tracking only after confirmed delivery to at
+	// least one active connection.
 	nc.updateSentPeers(data)
 
 	return nil
